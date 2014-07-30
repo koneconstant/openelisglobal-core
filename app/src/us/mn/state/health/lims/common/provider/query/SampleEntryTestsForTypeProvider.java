@@ -16,21 +16,11 @@
  */
 package us.mn.state.health.lims.common.provider.query;
 
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-
-import javax.servlet.ServletException;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
-
 import org.apache.commons.lang.StringEscapeUtils;
 import org.apache.commons.validator.GenericValidator;
-
+import us.mn.state.health.lims.common.services.DisplayListService;
+import us.mn.state.health.lims.common.services.TestService;
+import us.mn.state.health.lims.common.util.IdValuePair;
 import us.mn.state.health.lims.common.util.XMLUtil;
 import us.mn.state.health.lims.panel.dao.PanelDAO;
 import us.mn.state.health.lims.panel.daoimpl.PanelDAOImpl;
@@ -42,18 +32,29 @@ import us.mn.state.health.lims.test.dao.TestDAO;
 import us.mn.state.health.lims.test.daoimpl.TestDAOImpl;
 import us.mn.state.health.lims.test.daoimpl.TestSectionDAOImpl;
 import us.mn.state.health.lims.test.valueholder.Test;
+import us.mn.state.health.lims.testdictionary.daoimpl.TestDictionaryDAOImpl;
+import us.mn.state.health.lims.testdictionary.valueholder.TestDictionary;
 import us.mn.state.health.lims.typeofsample.dao.TypeOfSamplePanelDAO;
 import us.mn.state.health.lims.typeofsample.daoimpl.TypeOfSamplePanelDAOImpl;
 import us.mn.state.health.lims.typeofsample.util.TypeOfSampleUtil;
 import us.mn.state.health.lims.typeofsample.valueholder.TypeOfSamplePanel;
 
+import javax.servlet.ServletException;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import java.util.*;
+
 public class SampleEntryTestsForTypeProvider extends BaseQueryProvider{
 	private TestDAO testDAO = new TestDAOImpl();
 	private PanelDAO panelDAO = new PanelDAOImpl();
 	private static final String USER_TEST_SECTION_ID;
+    private static final String VARIABLE_SAMPLE_TYPE_ID;
+    private boolean isVariableTypeOfSample;
 
 	static{
 		USER_TEST_SECTION_ID = new TestSectionDAOImpl().getTestSectionByName("user").getId();
+        VARIABLE_SAMPLE_TYPE_ID = TypeOfSampleUtil.getTypeOfSampleIdForLocalAbbreviation( "Variable" );
 	}
 
 	@Override
@@ -61,8 +62,8 @@ public class SampleEntryTestsForTypeProvider extends BaseQueryProvider{
 
 		String sampleType = request.getParameter("sampleType");
 		String labOrderType = request.getParameter("labOrderType");
-
-		StringBuilder xml = new StringBuilder();
+        isVariableTypeOfSample =  VARIABLE_SAMPLE_TYPE_ID.equals( sampleType );
+        StringBuilder xml = new StringBuilder();
 
 		String result = createSearchResultXML(sampleType, labOrderType, xml);
 
@@ -80,7 +81,7 @@ public class SampleEntryTestsForTypeProvider extends BaseQueryProvider{
 			@Override
 			public int compare(Test t1, Test t2){
 				if(GenericValidator.isBlankOrNull(t1.getSortOrder()) || GenericValidator.isBlankOrNull(t2.getSortOrder())){
-					return t1.getTestName().compareTo(t2.getTestName());
+					return TestService.getLocalizedTestName( t1 ).compareTo(TestService.getLocalizedTestName( t2 ));
 				}
 
 				try{
@@ -96,12 +97,15 @@ public class SampleEntryTestsForTypeProvider extends BaseQueryProvider{
 					}
 
 				}catch(NumberFormatException e){
-					return t1.getTestName().compareTo(t2.getTestName());
+                    return TestService.getLocalizedTestName( t1 ).compareTo(TestService.getLocalizedTestName( t2 ));
 				}
 
 			}
 		});
 
+        if( isVariableTypeOfSample){
+            xml.append( "<variableSampleType/>" );
+        }
 		addTests(tests, xml);
 
 		List<TypeOfSamplePanel> panelList = getPanelList(sampleType);
@@ -123,13 +127,35 @@ public class SampleEntryTestsForTypeProvider extends BaseQueryProvider{
 
 	private void addTest(Test test, StringBuilder xml){
 		xml.append("<test>");
-		XMLUtil.appendKeyValue("name", StringEscapeUtils.escapeXml(test.getTestName()), xml);
+		XMLUtil.appendKeyValue("name", StringEscapeUtils.escapeXml( TestService.getLocalizedTestName( test)), xml);
 		XMLUtil.appendKeyValue("id", test.getId(), xml);
 		XMLUtil.appendKeyValue("userBenchChoice", String.valueOf(USER_TEST_SECTION_ID.equals(test.getTestSection().getId())), xml);
+        if( isVariableTypeOfSample){
+            addVariableSampleTypes( test, xml);
+        }
 		xml.append("</test>");
 	}
 
-	private void addPanels(List<PanelTestMap> panelMap, StringBuilder xml){
+    private void addVariableSampleTypes( Test test, StringBuilder xml ){
+        TestDictionary testDictionary = new TestDictionaryDAOImpl().getTestDictionaryForTestId( test.getId() );
+        List<IdValuePair> pairs = DisplayListService.getDictionaryListByCategory( testDictionary.getDictionaryCategory().getCategoryName() );
+        xml.append( "<variableSampleTypes " );
+        if( !GenericValidator.isBlankOrNull( testDictionary.getQualifiableDictionaryId() )){
+             XMLUtil.appendKeyValueAttribute( "qualifiableId", testDictionary.getQualifiableDictionaryId(), xml );
+        }
+        xml.append( " >" );
+        for(IdValuePair pair : pairs){
+            xml.append( "<type " );
+            XMLUtil.appendKeyValueAttribute( "id", pair.getId(), xml );
+            XMLUtil.appendKeyValueAttribute( "name", pair.getValue(), xml );
+            xml.append( " />" );
+        }
+        xml.append( "</variableSampleTypes>" );
+    }
+
+
+
+    private void addPanels(List<PanelTestMap> panelMap, StringBuilder xml){
 		panelMap = sortPanels(panelMap);
 
 		xml.append("<panels>");
@@ -170,7 +196,7 @@ public class SampleEntryTestsForTypeProvider extends BaseQueryProvider{
 		Map<String, Integer> testNameOrderMap = new HashMap<String, Integer>();
 
 		for(int i = 0; i < tests.size(); i++){
-			testNameOrderMap.put(tests.get(i).getTestName(), new Integer(i));
+			testNameOrderMap.put(TestService.getLocalizedTestName( tests.get(i)), new Integer(i));
 		}
 
 		PanelItemDAO panelItemDAO = new PanelItemDAOImpl();
@@ -211,12 +237,12 @@ public class SampleEntryTestsForTypeProvider extends BaseQueryProvider{
 	}
 
 	private String getDerivedNameFromPanel(PanelItem item){
-		//This cover the transition in the DBbetween the panel_item being linked by name
+		//This cover the transition in the DB between the panel_item being linked by name
 		// to being linked by id
 		if(item.getTestId() != null){
 			Test test = testDAO.getTestById(item.getTestId());
 			if(test != null){
-				return test.getTestName();
+				return TestService.getLocalizedTestName( test );
 			}
 		}else{
 			return item.getTestName();
