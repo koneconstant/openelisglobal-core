@@ -182,7 +182,8 @@
 		<column name="fax" type="varchar(17)" />
 	</modifyColumn>
 </changeSet>
-<changeSet author="kone" id="23">
+ 
+<changeSet author="kone" >
 	<comment>Adds a new column to site_information table</comment>
 	<addColumn tableName="site_information" schemaName="clinlims">  
 		<column name="descriptionKey"  type="varchar(32)" />
