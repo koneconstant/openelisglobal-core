@@ -183,7 +183,7 @@
 	</modifyColumn>
 </changeSet>
  
-<changeSet author="kone" >
+<changeSet author="kone" id="21">
 	<comment>Adds a new column to site_information table</comment>
 	<addColumn tableName="site_information" schemaName="clinlims">  
 		<column name="descriptionKey"  type="varchar(32)" />
